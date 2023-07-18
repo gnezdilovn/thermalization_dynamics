@@ -117,7 +117,7 @@ def J_SYK2(n, J):
     Js = [] 
     L1 = perm_SYK2(n)
     for i in range(len(L1)):    
-        v = np.random.normal(loc = 0.0, scale = 0.5 * varJ, size = (1, 2)).view(np.complex)[0][0]
+        v = np.random.normal(loc = 0.0, scale = np.sqrt(0.5 * varJ), size = (1, 2)).view(np.complex)[0][0]
         Js.extend([v])
     return Js  
 
