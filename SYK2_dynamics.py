@@ -111,7 +111,7 @@ def perm_diag(n):
         L1.extend([v])
     return L1    
 
-# J_SYK2(n, J) returns a list of complex random numbers with the length of perm_SYK2(n) + perm_diag(n)  
+# J_SYK2(n, J) returns a list of complex random numbers with the length of perm_SYK2(n)  
 def J_SYK2(n, J):
     varJ = J ** 2 / n 
     Js = [] 
