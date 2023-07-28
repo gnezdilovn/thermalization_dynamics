@@ -3,9 +3,11 @@ import functools as ft
 import more_itertools
 from more_itertools import distinct_permutations as idp
 from scipy.linalg import expm
+import random
 
-# down -- ground state
-# up -- excited state
+# down -- ground state of a single qubit
+# up -- excited state of a single qubit
+
 down = np.array([1j, 1]) / np.sqrt(2)
 up = np.array([-1j, 1]) / np.sqrt(2)
 
@@ -19,32 +21,39 @@ minus = np.array([[0, 0], [1, 0]])
 mplus = plus @ sz
 mminus = sz @ minus
 
-# psi(k, n) returns a list of states with k excitations among n qubits
-# 0 symbolically represents the ground state
-# 1 represents the excited state
-# the ground state is given by psi(0, n)
-def psi(k, n):
-# listvec is a list of 0 and 1 
-# where the position in the list corresponds to the qubit that is either in 0 or 1 state  
-    listvec = [0] * (n - k) + [1] * k
-    f = []
-# the loop in idp(listvec) iterates all distinct permutations in listvec
-# v is the list of 0 and 1 corresponding to a given permutation
-    for i in idp(listvec):
-        v = list(i)
-        for j in range(len(v)):
-            if v[j] == 0:
-                v[j] = down # '0' in v is changed to 'down' vector         
-            else:
-                v[j] = up # '1' in v is changed to 'up' vector
-# ft.reduce(np.kron, v) computes the Kronecker product between the elements of v     
-        vec = ft.reduce(np.kron, v)
-        f.extend([vec])
+def gs(n): 
+    v = [0] * n
+    for j in range(len(v)):
+        if v[j] == 0:
+            v[j] = down        
+        else:
+            v[j] = up     
+    f = ft.reduce(np.kron, v)
     return f
 
-# perm_diag(n) returns a list of lists of \sigma^y_i, where i = 1, 2 ,..., n
-def perm_diag(n):
-# 'Y' represents \sigma^y operator 
+def psi(n): 
+    f = []
+    for k in range(n+1):
+        listvec = [0] * (n - k) + [1] * k
+        for i in idp(listvec):
+            v = list(i)
+            for j in range(len(v)):
+                if v[j] == 0:
+                    v[j] = down        
+                else:
+                    v[j] = up     
+            vec = ft.reduce(np.kron, v)
+            f.extend([vec])
+    return f
+
+def energ_sp(n, omega_min, omega_max):
+    f = np.zeros(n)
+    for j in range(n):
+        #v = (j + 1) ** 2 * omega
+        f[j] = random.uniform(omega_min, omega_max)#v
+    return f  
+
+def perm_diag(n): 
     listvec = ['Y']  + ['I'] * (n - 1) 
     L1 = []
     for i in idp(listvec):
@@ -52,15 +61,10 @@ def perm_diag(n):
         L1.extend([v])
     return L1  
 
-# H_0(n, omega_min, omega_max) returns the frequencies of the qubits and 
-# the initial Hamiltonian of the system  \sum_i 0.5 * \omega_i  sigma^y_i, 
-# omega_min -- minimum frequency of the qubits
-# omega_max -- maximum frequency of the qubits
-def H_0(n, omega_min, omega_max):
+def H_0(n, omegas):
     dim = (2 ** n, 2 ** n)
     f_sum = np.zeros(dim)
     L1 = perm_diag(n)
-    omegas = np.linspace(omega_max, omega_min, n)
     for i in range(len(L1)):
         v = L1[i]
         for j in range(len(v)):
@@ -70,22 +74,26 @@ def H_0(n, omega_min, omega_max):
                 v[j] = one        
         f = 0.5 * omegas[i] * ft.reduce(np.kron, v) 
         f_sum = f_sum + f
-    return omegas, f_sum
+    return f_sum
 
-# perm_SYK2(n) returns a list of lists of c_i^\dag c_j for i > j, where i = 1, 2 ,..., n
-# where the fermionic operators c_i^\dag, c_i are mapped onto qubits using Jordan-Wigner transform
+def energ_mb(n, omegas):
+    fs = psi(n)
+    ls = []
+    es = []
+    H = H_0(n, omegas)
+    for l in range(len(fs)):
+        ls.append(l)
+        energ = np.conjugate(fs[l]) @ H @ fs[l]
+        if np.abs(np.imag(energ)) > 1e-15:
+            print('error: complex energies')
+        es.append(np.real(energ))
+    return ls, es
+        
 def perm_SYK2(n):
-# listvec is a list of the operators 'P',  'M', and 'I' 
-# where the position in the list corresponds to the qubit on which the operator acts on
-# 'P' represents \sigma^+ operator acting onto the jth qubit, where j is the position of 'P' in the listvec
-# 'M' represents \sigma^- operator acting onto the jth qubit, where j is the position of 'M' in the listvec
-# 'I' represents the identity operator acting onto the jth qubit, where j is the position of 'I' in the listvec
     listvec = ['P', 'M']  + ['I'] * (n - 2)  
-    L1 = [] # -- list of lists of terms that enter the Hamilonian
-    L2 = [] # -- Hermitian conjugate of L1
+    L1 = [] 
+    L2 = []
     k = 0
-# the loop in idp(listvec) iterates all distinct permutations in listvec
-# v is the list of 'P', 'M', and 'I' corresponding to a given permutation
     for i in idp(listvec):
         k += 1
         v = list(i)
@@ -98,16 +106,11 @@ def perm_SYK2(n):
             else:
                 vconj[j] = 'I'    
         L1.extend([v])
-        L2.extend([vconj])
-# we remove the elements of L1 that correspond to the Hermitian conjugate to avoid double counting          
+        L2.extend([vconj])         
         if k > 1:
             for m in range(2, k+1):
                 if v == L2[m-2]:
                     L1.remove(v)
-# the operator 'M' in each internal list of L1 positioned closest to 1 becomes the 'ZM' operator  
-# the same holds for the 'P' and 'PZ' operators
-# 'ZM' represents sigma^z \sigma^- operator
-# 'PZ' represents sigma^+ \sigma^z operator
     l = []    
     for k in range(len(L1)):
         for m in range(len(L1[k])):
@@ -119,9 +122,6 @@ def perm_SYK2(n):
                 L1[k][m] = 'ZM'
                 l.extend([m])
                 break  
-# we exchange the identity operators acting on qubits between the positions of the 'P' and 'M' operators 
-# for the 'Z' operator.   
-# 'Z' represents \sigma^z operator
     for k in range(len(L1)):
         for m in range(l[k]+1,len(L1[k])):
             if L1[k][m] == 'I':
@@ -131,8 +131,7 @@ def perm_SYK2(n):
             elif L1[k][m] == 'M':
                 break
     return L1
-
-# J_SYK2(n, J) returns a list of complex random numbers with the length of perm_SYK2(n) + perm_diag(n)  
+ 
 def J_SYK2(n, J):
     varJ = J ** 2 / n 
     Js = [] 
@@ -142,9 +141,6 @@ def J_SYK2(n, J):
         Js.extend([v])
     return Js  
 
-# H_SYK2(n, couplings, mu) returns 2d array for the Hamiltonian 
-# H = \sum_{i>j}^n J_{ij} c_i^\dag c_j + h.c 
-# for a given realization of couplings
 def H_SYK2(n, couplings):
     dim = (2 ** n, 2 ** n)
     H_sum = np.zeros(dim)
@@ -154,8 +150,7 @@ def H_SYK2(n, couplings):
     for i in range(len(L1)):
         k += 1
         v = L1[i]        
-        vconj = [0] * len(v)  
-# we exchange the string variables 'ZM', 'PZ', 'P', 'M', 'Z', and 'I' in L1[i] with the 2 x 2 matrices         
+        vconj = [0] * len(v)        
         for j in range(len(v)):
             if v[j] == 'ZM':
                 v[j] = mminus
@@ -174,8 +169,7 @@ def H_SYK2(n, couplings):
                 vconj[j] = sz
             else:
                 v[j] = one
-                vconj[j] = one  
-# we generate the Hamiltonian                
+                vconj[j] = one                 
         H =  Js[k-1] * ft.reduce(np.kron, v) + np.conjugate(Js[k-1]) * ft.reduce(np.kron, vconj)
         H_sum = H_sum + H
         #for i in range(0,dim[0]):
@@ -184,34 +178,53 @@ def H_SYK2(n, couplings):
         #            print('Hermicity check fails!')     
     return H_sum
 
-# evolved_state(n, t, H) returns the ground state evolved with the Hamiltonian H
-def evolved_state(n, t, H):
-    gs = psi(0, n)[0]
+def ev_state(n, t, H):
     U = expm(- 1j * t * H)
-    f = np.dot(U, gs)
+    f = np.dot(U, gs(n))
     return f
 
-# p(n, t, states, H) returns the occupation probability 
-# p_k(\tau) = \sum_i |< k i | \psi(\tau) >|^2, 
-# where | k i > is a state with occupation k and i sums over degenerate states
-def p(n, t, states, H):
-    pop_sum = 0.
-    fs = states
-    es = evolved_state(n, t, H)
-    for i in range(len(fs)):
-        overlap = np.dot(np.conjugate(fs[i]), es)
-        pop = np.abs(overlap) ** 2
-        pop_sum = pop_sum + pop
-    return pop_sum
+def p(n, t, H_0, V):
+    fs = psi(n)
+    es = []
+    ps = []
+    H_tot = H_0 + V
+    psi_t = ev_state(n, t, H_tot)
+    for l in range(len(fs)):
+        energ = np.conjugate(fs[l]) @ H_0 @ fs[l]
+        if np.abs(np.imag(energ)) > 1e-15:
+            print('error: complex energies')
+        es.append(np.real(energ))
+        pop = np.abs(np.dot(np.conjugate(fs[l]), psi_t)) ** 2
+        ps.append(pop)
+    es_order = []
+    ps_order = []    
+    for l in range(len(fs)):    
+        es_order.append(sorted(zip(es, ps))[l][0])
+        ps_order.append(sorted(zip(es, ps))[l][1])
+    return es_order, ps_order
 
-# we generate the data for a total spin of the system S, variance of S, and occupation probabilities 
+def p_th(n, b, omegas):
+    es = energ_mb(n, omegas)[1]
+    ps = []
+    for l in range(len(es)):
+        pop = np.exp(- b * es[l])
+        ps.append(pop)
+    Z = np.sum(ps)
+    for l in range(len(es)):
+        ps[l] = ps[l] / Z 
+    es_order = []
+    ps_order = []
+    for l in range(len(es)):
+        es_order.append(sorted(zip(es, ps))[l][0])
+        ps_order.append(sorted(zip(es, ps))[l][1])
+    return es_order, ps_order
 
 # the parameters: 
 # num -- number of qubits
 # Jc -- square root of the variance of random couplings J_{ij}
 # nr -- number of realizations
-# omega_min -- minimum frequency of the qubit
-# omega_max -- maximum frequency of the qubit
+# [omega_min, omega_max] -- defines the interval for the single-particle energies
+# do -- levels' spacing
 # t_min -- mininum time
 # t_max -- maximum time
 # nt -- number of time points
@@ -219,50 +232,47 @@ def p(n, t, states, H):
 def SYK2(num, Jc, nr, omega_min, omega_max, t_min, t_max, nt):
 
     time = np.linspace(t_min, t_max, nt) 
-    omegas = H_0(num, omega_min, omega_max)[0]
-    H_qubits = H_0(num, omega_min, omega_max)[1]
+    sp_levels = energ_sp(num, omega_min, omega_max)
+    H_qubits = H_0(num, sp_levels)
+    energ = sorted(energ_mb(num, sp_levels)[1])
 
-    Lk = [ [0] * nr for t in range(len(time))] 
-    Lk2 = [ [0] * nr for t in range(len(time))] 
-    Lp = [ [0] * nr for t in range(len(time))] 
-    S = [ [0] * nr for t in range(len(time))] 
-    S2 = [ [0] * nr for t in range(len(time))] 
-    SS2 = [ [0] * nr for t in range(len(time))]
+
+    Le = [[0] * nr for t in range(len(time))]
+    Le2 = [[0] * nr for t in range(len(time))]
+    Lp = [[0] * nr for t in range(len(time))] 
+    E = [[0] * nr for t in range(len(time))] 
+    E2 = [[0] * nr for t in range(len(time))] 
+    EE2 = [[0] * nr for t in range(len(time))]
 
     for j in range(nr):
-    # printing the ongoing realization    
         print(j)
         Js = J_SYK2(num, Jc)
-        H2 = H_SYK2(num, Js) + H_qubits
+        V = H_SYK2(num, Js)
         for t in range(len(time)):
-            ks = []
-            ps = []
-            for k in range(num+1):
-                fs = psi(k, num)
-                ks.append(k)
-                ps.append(p(num, time[t], fs, H2))    
-            Lk[t][j] = ks
-            Lk2[t][j] = [q ** 2 for i, q in enumerate(ks)]
-            Lp[t][j] = ps
-            S[t][j] = - num / 2 + np.array(Lk[t][j]) @ np.array(Lp[t][j]) 
-            S2[t][j] = np.array(Lk2[t][j]) @ np.array(Lp[t][j]) 
-            SS2[t][j] =  S2[t][j] - ( S[t][j] + num / 2  ) ** 2
-
-    # averaging over realizations: 
-    S0 = np.array([- num / 2 for i in range(len(time))])  
+            Le[t][j] = p(num, time[t], H_qubits, V)[0]
+            delta = np.array(Le[t][j]) - np.array(energ)
+            if delta.any() != 0.:
+                print('error: the energies do not coincide')
+            Le2[t][j] = [q ** 2 for i, q in enumerate(Le[t][j])]    
+            Lp[t][j] = p(num, time[t], H_qubits, V)[1]
+            E[t][j] = np.array(Le[t][j]) @ np.array(Lp[t][j])
+            E2[t][j] = np.array(Le2[t][j]) @ np.array(Lp[t][j]) 
+            EE2[t][j] =  E2[t][j] - E[t][j] ** 2
+ 
     pav = np.sum(np.array(Lp), 1) / nr
-    Sav = np.sum(np.array(S), 1)  / nr
-    S2av = np.sum(np.array(S2), 1)  / nr
-    VarS = S2av  - (Sav - S0) ** 2
+    Eav = np.sum(np.array(E), 1)  / nr
+    E2av = np.sum(np.array(E2), 1)  / nr
+    VarE = E2av  - Eav ** 2
 
-    # saving the data:
     np.save('data/time.npy', time, allow_pickle = True)
-    np.save('data/omegas_N={}_omega_min={}_omega_max={}.npy.npy'.format(num, omega_min, omega_max), omegas, allow_pickle = True)
+    np.save('data/sp_levels_N={}_omega_min={}_omega_max={}.npy'.format(num, omega_min, omega_max), sp_levels, allow_pickle = True)
+    np.save('data/energ_N={}_omega_min={}_omega_max={}.npy'.format(num, omega_min, omega_max), energ, allow_pickle = True)
+    np.save('data/es_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), Le, allow_pickle = True)
     np.save('data/p_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), Lp, allow_pickle = True)
     np.save('data/pav_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), pav, allow_pickle = True)
-    np.save('data/S_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), S, allow_pickle = True)
-    np.save('data/SS2_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), SS2, allow_pickle = True)
-    np.save('data/Sav_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), Sav, allow_pickle = True)
-    np.save('data/S2av_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), S2av, allow_pickle = True)
-    np.save('data/VarS_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), VarS, allow_pickle = True)
+    np.save('data/E_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), E, allow_pickle = True)
+    np.save('data/Eav_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), Eav, allow_pickle = True)
+    np.save('data/EE2_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), EE2, allow_pickle = True)
+    np.save('data/E2av_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), E2av, allow_pickle = True)
+    np.save('data/VarE_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), VarE, allow_pickle = True)
     # the data is saved into 'data/...'
