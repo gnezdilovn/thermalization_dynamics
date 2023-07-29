@@ -49,8 +49,7 @@ def psi(n):
 def energ_sp(n, omega_min, omega_max):
     f = np.zeros(n)
     for j in range(n):
-        #v = (j + 1) ** 2 * omega
-        f[j] = random.uniform(omega_min, omega_max)#v
+        f[j] = random.uniform(omega_min, omega_max)
     return f  
 
 def perm_diag(n): 
