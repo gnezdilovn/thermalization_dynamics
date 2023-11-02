@@ -15,14 +15,15 @@ up = np.array([-1j, 1]) / np.sqrt(2)
 one = np.array([[1, 0], [0, 1]])
 sy = np.array([[0, - 1j], [1j, 0]])
 sz = np.array([[1, 0], [0, -1]]) 
-sy = np.array([[0, - 1j], [1j, 0]])
+sx = np.array([[0, 1], [1, 0]])
 plus = np.array([[0, 1], [0, 0]])
 minus = np.array([[0, 0], [1, 0]])
 mplus = plus @ sz
 mminus = sz @ minus
+low = 0.5 * ( - sz + 1j * sx )
 
 def gs(n): 
-    v = [0] * n
+    v = [1] * n #[0] * n #[1] * int(0.5 * n) + [0] * int(0.5 * n)  #[1] * n
     for j in range(len(v)):
         if v[j] == 0:
             v[j] = down        
@@ -52,6 +53,12 @@ def energ_sp(n, omega_min, omega_max):
         f[j] = random.uniform(omega_min, omega_max)
     return f  
 
+#def energ_sp(n, omega_min, omega_max):
+#    f = np.zeros(n)
+#    for j in range(n):
+#        f[j] = (j + 1) ** 2 * omega_min
+#    return f  
+
 def perm_diag(n): 
     listvec = ['Y']  + ['I'] * (n - 1) 
     L1 = []
@@ -72,6 +79,21 @@ def H_0(n, omegas):
             else:
                 v[j] = one        
         f = 0.5 * omegas[i] * ft.reduce(np.kron, v) 
+        f_sum = f_sum + f
+    return f_sum
+
+def H_diss(n, Gamma):
+    dim = (2 ** n, 2 ** n)
+    f_sum = np.zeros(dim)
+    L1 = perm_diag(n)
+    for i in range(len(L1)):
+        v = L1[i]
+        for j in range(len(v)):
+            if v[j] == 'Y':
+                v[j] = low  
+            else:
+                v[j] = one        
+        f = - Gamma * ft.reduce(np.kron, v) 
         f_sum = f_sum + f
     return f_sum
 
@@ -182,11 +204,12 @@ def ev_state(n, t, H):
     f = np.dot(U, gs(n))
     return f
 
-def p(n, t, H_0, V):
+def p(n, t, H_0, V, Gamma):
     fs = psi(n)
     es = []
     ps = []
-    H_tot = H_0 + V
+    #H_tot = H_0 + V
+    H_tot = H_0 + H_diss(n, Gamma)+ V
     psi_t = ev_state(n, t, H_tot)
     for l in range(len(fs)):
         energ = np.conjugate(fs[l]) @ H_0 @ fs[l]
@@ -228,12 +251,14 @@ def p_th(n, b, omegas):
 # t_max -- maximum time
 # nt -- number of time points
 
-def SYK2(num, Jc, nr, omega_min, omega_max, t_min, t_max, nt):
+def SYK2(num, Jc, nr, omega_min, omega_max, t_min, t_max, nt, Gamma):
 
     time = np.linspace(t_min, t_max, nt) 
-    sp_levels = energ_sp(num, omega_min, omega_max)
+    sp_levels = energ_sp(num, omega_min, omega_max)    #[0.28, 0.38, 0.63, 0.86] 
     H_qubits = H_0(num, sp_levels)
     energ = sorted(energ_mb(num, sp_levels)[1])
+    print(np.round(sp_levels, 3))
+    print(np.round(energ, 3))
 
 
     Le = [[0] * nr for t in range(len(time))]
@@ -248,12 +273,12 @@ def SYK2(num, Jc, nr, omega_min, omega_max, t_min, t_max, nt):
         Js = J_SYK2(num, Jc)
         V = H_SYK2(num, Js)
         for t in range(len(time)):
-            Le[t][j] = p(num, time[t], H_qubits, V)[0]
+            Le[t][j] = p(num, time[t], H_qubits, V, Gamma)[0]
             delta = np.array(Le[t][j]) - np.array(energ)
             if delta.any() != 0.:
                 print('error: the energies do not coincide')
             Le2[t][j] = [q ** 2 for i, q in enumerate(Le[t][j])]    
-            Lp[t][j] = p(num, time[t], H_qubits, V)[1]
+            Lp[t][j] = p(num, time[t], H_qubits, V, Gamma)[1]
             E[t][j] = np.array(Le[t][j]) @ np.array(Lp[t][j])
             E2[t][j] = np.array(Le2[t][j]) @ np.array(Lp[t][j]) 
             EE2[t][j] =  E2[t][j] - E[t][j] ** 2
@@ -271,6 +296,7 @@ def SYK2(num, Jc, nr, omega_min, omega_max, t_min, t_max, nt):
     np.save('data/pav_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), pav, allow_pickle = True)
     np.save('data/E_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), E, allow_pickle = True)
     np.save('data/Eav_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), Eav, allow_pickle = True)
+    np.save('data/E2_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), E2, allow_pickle = True)
     np.save('data/EE2_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), EE2, allow_pickle = True)
     np.save('data/E2av_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), E2av, allow_pickle = True)
     np.save('data/VarE_N={}_nr={}_omega_min={}_omega_max={}.npy'.format(num, nr, omega_min, omega_max), VarE, allow_pickle = True)
